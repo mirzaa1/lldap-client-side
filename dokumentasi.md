@@ -187,3 +187,88 @@ Restrict access to the configuration file:
 sudo chmod 600 /etc/sssd/sssd.conf
 ```
 Permission 600 means: root can read write and accsess, group cant accsess, other cant accsess
+
+## PAM Configuration for LDAP Authentication
+PAM (Pluggable Authentication Modules) provides a flexible framework for authentication, account management, password management, and session handling on Linux systems.
+
+To enable LDAP authentication through SSSD, the PAM configuration must be updated so that user authentication requests can be processed by both local accounts and the LDAP directory.
+
+Edit the PAM Configuration
+
+Open the system authentication configuration file:
+```
+sudo nvim /etc/pam.d/system-auth
+```
+Configure the file as follows:
+```
+#%PAM-1.0
+
+# ----------------- SECTION: AUTHENTICATION -----------------
+auth      required  pam_faillock.so preauth
+auth      [success=2 default=ignore] pam_sss.so
+auth      [success=1 default=bad]    pam_unix.so try_first_pass nullok
+auth      [default=die]              pam_faillock.so authfail
+auth      optional  pam_permit.so
+auth      required  pam_env.so
+auth      required  pam_faillock.so authsucc
+
+# ----------------- SECTION: ACCOUNT MANAGEMENT -----------------
+account   [success=1 default=ignore] pam_sss.so
+account   required                   pam_unix.so
+account   optional                   pam_permit.so
+account   required                   pam_time.so
+
+# ----------------- SECTION: PASSWORD MANAGEMENT -----------------
+password  [success=1 default=ignore] pam_sss.so
+password  required                   pam_unix.so try_first_pass nullok shadow sha512
+password  optional                   pam_permit.so
+
+# ----------------- SECTION: SESSION MANAGEMENT -----------------
+session   required  pam_limits.so
+session   required  pam_unix.so
+session   optional  pam_sss.so
+session   optional  pam_permit.so
+```
+
+### PAM Login Configuration
+The system-login PAM configuration controls how users access the system through login services such as console logins, SSH sessions, and other PAM-enabled authentication mechanisms.
+
+This configuration integrates local authentication, LDAP authentication through SSSD, automatic home directory creation, and user session management.
+
+Edit the Configuration File
+
+Open the PAM login configuration:
+```
+sudo nvim /etc/pam.d/system-login
+```
+Configure the file as follows:
+```
+#%PAM-1.0
+
+auth       required   pam_shells.so
+auth       requisite  pam_nologin.so
+auth       sufficient pam_sss.so forward_pass
+auth       include    system-auth
+auth       required   pam_mount.so
+
+account    required   pam_access.so
+account    required   pam_nologin.so
+account    include    system-auth
+account    sufficient pam_sss.so
+
+password   include    system-auth
+password   sufficient pam_sss.so use_authtok
+
+session    optional   pam_loginuid.so
+session    optional   pam_keyinit.so force revoke
+session    include    system-auth
+session    optional   pam_lastlog2.so silent
+session    optional   pam_motd.so
+session    optional   pam_mail.so dir=/var/spool/mail standard quiet
+session    optional   pam_umask.so
+session    optional   pam_mount.so
+session    required   pam_mkhomedir.so skel=/etc/skel/ umask=0077
+session    optional   pam_sss.so
+-session   optional   pam_systemd.so
+session    required   pam_env.so
+```
